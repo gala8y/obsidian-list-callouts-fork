@@ -87,36 +87,50 @@ export function buildPostProcessor(
 
       const text = node.textContent;
       if (!text) return;
+        const match = text.match(config.re);
+        if (match) {
+          const matchedCharsText = match[1];
+          const matchedChars = matchedCharsText.split(' ').filter(c => c.length > 0);
+          const callouts = matchedChars.map(c => config.callouts[c]).filter(Boolean);
 
-      const match = text.match(config.re);
-      const callout = match ? config.callouts[match[1]] : null;
+          if (callouts.length > 0) {
+            const mainCallout = callouts[0]; // Line background takes first icon's color
 
-      if (callout) {
-        li.addClass('lc-list-callout');
-        li.setAttribute('data-callout', callout.char);
-        li.style.setProperty('--lc-callout-color', callout.color);
+            li.addClass('lc-list-callout');
+            li.setAttribute('data-callout', mainCallout.char);
+            li.style.setProperty('--lc-callout-color', mainCallout.color);
 
-        node.replaceWith(
-          createFragment((f) => {
-            f.append(
-              createSpan(
-                {
-                  cls: 'lc-list-marker',
-                  text: text.slice(0, callout.char.length),
-                },
-                (span) => {
-                  if (callout.icon) {
-                    setIcon(span, callout.icon);
+            node.replaceWith(
+              createFragment((f) => {
+                // Loop through all matched icons and apply their specific setup colors
+                for (const char of matchedChars) {
+                  const callout = config.callouts[char];
+                  if (callout) {
+                    f.append(
+                      createSpan(
+                        {
+                          cls: 'lc-list-marker',
+                          text: char,
+                          attr: {
+                            style: `color: rgb(${callout.color}); margin-right: 4px;`
+                          }
+                        },
+                        (span) => {
+                          if (callout.icon) setIcon(span, callout.icon);
+                        }
+                      )
+                    );
                   }
                 }
-              )
+                
+                // Append the remainder of the text without the markers
+                f.append(text.slice(matchedCharsText.length));
+              })
             );
-            f.append(text.slice(callout.char.length));
-          })
-        );
 
-        wrapLiContent(li);
-      }
+            wrapLiContent(li);
+          }
+        }
     });
   };
 }

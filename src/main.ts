@@ -85,32 +85,29 @@ export default class ListCalloutsPlugin extends Plugin {
   }
 
   buildEditorConfig(): CalloutConfig {
+    const chars = this.settings.map(callout => escapeStringRegexp(callout.char)).join('|');
     return {
       callouts: this.settings.reduce<Record<string, Callout>>((record, curr) => {
         record[curr.char] = curr;
-        return record
+        return record;
       }, {}),
       re: new RegExp(
-        `(^\\s*[-*+](?: \\[.\\])? |^\\s*\\d+[\\.\\)](?: \\[.\\])? )(${
-          this.settings.map(callout => escapeStringRegexp(callout.char)).join('|')
-        }) `
+        `(^\\s*[-*+](?: \\[[. ]\\])? |^\\s*\\d+[\\.\\)](?: \\[[. ]\\])? )((?:(?:${chars}) )+)`
       ),
-    }
+    };
   }
 
   buildPostProcessorConfig() {
+    const chars = this.settings.map(callout => escapeStringRegexp(callout.char)).join('|');
     this.postProcessorConfig = {
       callouts: this.settings.reduce<Record<string, Callout>>((record, curr) => {
         record[curr.char] = curr;
-        return record
+        return record;
       }, {}),
-      re: new RegExp(
-        `^(${
-          this.settings.map(callout => escapeStringRegexp(callout.char)).join('|')
-        }) `
-      ),
-    }
+      re: new RegExp(`^((?:(?:${chars}) )+)`),
+    };
   }
+
 
   async loadSettings() {
     const loadedSettings = (await this.loadData()) as Callout[];

@@ -13,7 +13,7 @@ import {
   ViewUpdate,
   WidgetType,
 } from '@codemirror/view';
-import { setIcon } from 'obsidian';
+import { setIcon, editorLivePreviewField } from 'obsidian';
 
 import { CalloutConfig } from './settings';
 
@@ -36,12 +36,14 @@ export class CalloutBackground extends WidgetType {
 export class CalloutMarker extends WidgetType {
   char: string;
   icon?: string;
+  color?: string;
 
-  constructor(char: string, icon?: string) {
+  constructor(char: string, icon?: string, color?: string) {
     super();
 
     this.char = char;
     this.icon = icon;
+    this.color = color;
   }
 
   toDOM() {
@@ -51,6 +53,7 @@ export class CalloutMarker extends WidgetType {
         cls: 'lc-list-marker',
         attr: {
           'aria-hidden': 'true',
+          style: this.color ? `color: rgb(${this.color}); margin-right: 4px;` : '',
         },
       },
       (s) => {
@@ -62,9 +65,10 @@ export class CalloutMarker extends WidgetType {
   }
 
   eq(widget: CalloutMarker): boolean {
-    return widget.char === this.char && widget.icon === this.icon;
+    return widget.char === this.char && widget.icon === this.icon && widget.color === this.color;
   }
 }
+
 
 export const calloutDecoration = (char: string, color: string) =>
   Decoration.line({
@@ -94,6 +98,9 @@ export function buildCalloutDecos(view: EditorView, state: EditorState) {
   const config = state.field(calloutsConfigField);
   if (!config?.re || !view.visibleRanges.length) return Decoration.none;
 
+  // Detect if the editor is currently in Live Preview mode
+  const isLivePreview = state.field(editorLivePreviewField);
+
   const builder = new RangeSetBuilder<Decoration>();
   const lastRange = view.visibleRanges[view.visibleRanges.length - 1];
   const tree = ensureSyntaxTree(state, lastRange.to, 50);
@@ -110,33 +117,54 @@ export function buildCalloutDecos(view: EditorView, state: EditorState) {
 
         const prop = type.prop(tokenClassNodeProp);
         if (prop && /formatting-list/.test(prop)) {
-          const { from: lineFrom, to, text } = doc.lineAt(from);
+          const { from: lineFrom, to: lineTo, text } = doc.lineAt(from);
           const match = text.match(config.re);
-          const callout = match ? config.callouts[match[2]] : null;
 
-          lastEnd = to;
+          if (match) {
+            lastEnd = lineTo;
+            
+            const matchedCharsText = match[2];
+            const matchedChars = matchedCharsText.split(' ').filter(c => c.length > 0);
+            const callouts = matchedChars.map(c => config.callouts[c]).filter(Boolean);
 
-          if (callout) {
-            const labelPos = lineFrom + match[1].length;
+            if (callouts.length > 0) {
+              const mainCallout = callouts[0];
 
-            // Set the line class and callout color
-            builder.add(lineFrom, lineFrom, calloutDecoration(callout.char, callout.color));
+              builder.add(lineFrom, lineFrom, calloutDecoration(mainCallout.char, mainCallout.color));
 
-            // Add the callout background element
-            builder.add(
-              lineFrom,
-              lineFrom,
-              Decoration.widget({ widget: new CalloutBackground(), side: -1 })
-            );
+              builder.add(
+                lineFrom,
+                lineFrom,
+                Decoration.widget({ widget: new CalloutBackground(), side: -1 })
+              );
 
-            // Decorate the callout marker
-            builder.add(
-              labelPos,
-              labelPos + callout.char.length,
-              Decoration.replace({
-                widget: new CalloutMarker(callout.char, callout.icon),
-              })
-            );
+              let currentPos = lineFrom + match[1].length;
+              for (const char of matchedChars) {
+                const callout = config.callouts[char];
+                if (callout) {
+                  if (isLivePreview) {
+                    // In Live Preview: Replace the text with the Icon Widget
+                    builder.add(
+                      currentPos,
+                      currentPos + char.length,
+                      Decoration.replace({
+                        widget: new CalloutMarker(callout.char, callout.icon, callout.color),
+                      })
+                    );
+                  } else {
+                    // In Source View: Keep the text, but colorize it so it stands out
+                    builder.add(
+                      currentPos,
+                      currentPos + char.length,
+                      Decoration.mark({
+                        attributes: { style: `color: rgb(${callout.color}); font-weight: bold;` }
+                      })
+                    );
+                  }
+                }
+                currentPos += char.length + 1;
+              }
+            }
           }
         }
       },
@@ -155,9 +183,15 @@ export const calloutExtension = ViewPlugin.fromClass(
     }
 
     update(update: ViewUpdate) {
+      // Check if the user toggled between Live Preview and Source mode
+      const livePreviewChanged = 
+        update.startState.field(editorLivePreviewField) !== 
+        update.state.field(editorLivePreviewField);
+
       if (
         update.docChanged ||
         update.viewportChanged ||
+        livePreviewChanged || // Force redraw when the view mode changes
         update.transactions.some((tr) =>
           tr.effects.some((e) => e.is(setConfig))
         )
@@ -170,3 +204,4 @@ export const calloutExtension = ViewPlugin.fromClass(
     decorations: (v) => v.decorations,
   }
 );
+
